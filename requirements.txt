@@ -5,3 +5,8 @@ python-dotenv
 streamlit-mic-recorder
 openai
 pydub
+
+
+#realtime api re:
+pyaudio
+websockets
