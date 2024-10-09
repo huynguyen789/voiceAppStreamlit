@@ -10,6 +10,21 @@ import datetime
 # Load environment variables
 load_dotenv()
 
+def load_or_create_prompt():
+    prompt_dir = "prompts"
+    prompt_file = os.path.join(prompt_dir, "meeting_summarizer.txt")
+    
+    if not os.path.exists(prompt_dir):
+        os.makedirs(prompt_dir)
+    
+    if not os.path.exists(prompt_file):
+        default_prompt = "Please summarize the following transcript:\n\n{transcript}"
+        with open(prompt_file, "w") as f:
+            f.write(default_prompt)
+    
+    with open(prompt_file, "r") as f:
+        return f.read()
+
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
@@ -20,6 +35,8 @@ if 'summary' not in st.session_state:
     st.session_state.summary = ""
 if 'audio_file' not in st.session_state:
     st.session_state.audio_file = None
+if 'prompt' not in st.session_state:
+    st.session_state.prompt = load_or_create_prompt()
 
 def split_audio(audio_bytes, chunk_size_mb=25):
     audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format="webm")
@@ -50,21 +67,6 @@ def summarize_transcript(client, transcript, prompt):
     summary = get_openai_response(client, prompt.format(transcript=transcript))
     return summary
 
-def load_or_create_prompt():
-    prompt_dir = "prompts"
-    prompt_file = os.path.join(prompt_dir, "meeting_summarizer.txt")
-    
-    if not os.path.exists(prompt_dir):
-        os.makedirs(prompt_dir)
-    
-    if not os.path.exists(prompt_file):
-        default_prompt = "Please summarize the following transcript:\n\n{transcript}"
-        with open(prompt_file, "w") as f:
-            f.write(default_prompt)
-    
-    with open(prompt_file, "r") as f:
-        return f.read()
-
 def save_prompt(prompt):
     prompt_file = os.path.join("prompts", "meeting_summarizer.txt")
     with open(prompt_file, "w") as f:
@@ -90,17 +92,23 @@ def load_transcript(filepath):
         return f.read()
 
 def main():
-    st.title("Audio Recorder with OpenAI Whisper Speech-to-Text and GPT-4 Summary")
+    st.title("MeetingMate: Your AI-Powered Meeting Assistant")
 
-    # Load or create the prompt
-    if 'prompt' not in st.session_state:
-        st.session_state.prompt = load_or_create_prompt()
+    st.markdown("""
+    Welcome to MeetingMate! This app helps you:
+    1. Record your meetings or voice notes
+    2. Automatically transcribe the audio
+    3. Generate a concise summary using AI
+    
+    Perfect for busy professionals who want to save time and capture key points effortlessly.
+    """)
 
     st.header("1. Audio Recording")
+    st.info("Click the 'Start recording' button below. The recording will begin when you see the timer start. Click 'Stop recording' when you're done.")
     audio_value = st.experimental_audio_input("Click to record")
 
     if audio_value is not None:
-        st.write("Audio recorded successfully!")
+        st.success("Audio recorded successfully!")
         st.session_state.audio_file = audio_value
 
         # Automatically transcribe and summarize
@@ -128,18 +136,24 @@ def main():
                 audio_file.name = "recording.webm"
                 st.session_state.transcript = transcribe_audio(client, audio_file)
             
-            # Save the transcript and display the filename
+            # Save the transcript
             st.session_state.transcript_filepath = save_transcript(st.session_state.transcript)
-            transcript_filename = os.path.basename(st.session_state.transcript_filepath)
-            st.write(f"Transcript saved as: {transcript_filename}")
             
             # Display the transcript in an expandable section
             with st.expander("Click to view full transcript", expanded=False):
                 st.write(st.session_state.transcript)
+            
+            # Add download button for transcript
+            st.download_button(
+                label="Download Transcript",
+                data=st.session_state.transcript,
+                file_name="meeting_transcript.txt",
+                mime="text/plain"
+            )
 
             # Generate and display summary
             st.session_state.summary = summarize_transcript(client, st.session_state.transcript, st.session_state.prompt)
-            st.subheader("Summary:")
+            # st.subheader("Summary:")
             st.write(st.session_state.summary)
 
     # Display and allow editing of the prompt

@@ -1,3 +1,6 @@
-Please summarize the following transcript:
+Please summarize the below transcript 
+Output in markdown syntax with title, main summary, then detail summary after with nicely organize and format:
 
+<transcript>
 {transcript}
+</transcript>
