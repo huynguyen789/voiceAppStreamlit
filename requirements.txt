@@ -7,3 +7,9 @@ openai
 pydub
 
 
+
+
+
+#realtime api re:
+pyaudio
+websockets
