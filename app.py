@@ -4,11 +4,8 @@ import io
 import os
 from dotenv import load_dotenv
 from pydub import AudioSegment
-import pyaudio
-import wave
 import tempfile
-import time
-from audio_recorder_streamlit import audio_recorder
+import datetime
 
 # Load environment variables
 load_dotenv()
@@ -21,56 +18,8 @@ if 'transcript' not in st.session_state:
     st.session_state.transcript = ""
 if 'summary' not in st.session_state:
     st.session_state.summary = ""
-if 'is_recording' not in st.session_state:
-    st.session_state.is_recording = False
 if 'audio_file' not in st.session_state:
     st.session_state.audio_file = None
-
-def record_audio(duration=10, sample_rate=44100):
-    CHUNK = 1024
-    FORMAT = pyaudio.paInt16
-    CHANNELS = 1
-
-    p = pyaudio.PyAudio()
-
-    stream = p.open(format=FORMAT,
-                    channels=CHANNELS,
-                    rate=sample_rate,
-                    input=True,
-                    frames_per_buffer=CHUNK)
-
-    frames = []
-    start_time = time.time()
-
-    # Create a placeholder for the timer
-    timer_placeholder = st.empty()
-
-    for i in range(0, int(sample_rate / CHUNK * duration)):
-        if not st.session_state.is_recording:
-            break
-        data = stream.read(CHUNK)
-        frames.append(data)
-        
-        # Update the timer every 0.1 seconds
-        if i % 10 == 0:
-            elapsed_time = time.time() - start_time
-            timer_placeholder.text(f"Recording duration: {elapsed_time:.2f} seconds")
-
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
-
-    # Save as WAV file
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmpfile:
-        wf = wave.open(tmpfile.name, 'wb')
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(p.get_sample_size(FORMAT))
-        wf.setframerate(sample_rate)
-        wf.writeframes(b''.join(frames))
-        wf.close()
-
-    st.session_state.audio_file = tmpfile.name
-    st.session_state.is_recording = False
 
 def split_audio(audio_bytes, chunk_size_mb=25):
     audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format="webm")
@@ -97,35 +46,70 @@ def get_openai_response(client, prompt):
     )
     return response.choices[0].message.content
 
-def summarize_transcript(client, transcript):
-    prompt = f"Please summarize the following transcript:\n\n{transcript}"
-    summary = get_openai_response(client, prompt)
+def summarize_transcript(client, transcript, prompt):
+    summary = get_openai_response(client, prompt.format(transcript=transcript))
     return summary
 
-def get_audio_devices():
-    devices = sd.query_devices()
-    input_devices = [device for device in devices if device['max_input_channels'] > 0]
-    return input_devices
+def load_or_create_prompt():
+    prompt_dir = "prompts"
+    prompt_file = os.path.join(prompt_dir, "meeting_summarizer.txt")
+    
+    if not os.path.exists(prompt_dir):
+        os.makedirs(prompt_dir)
+    
+    if not os.path.exists(prompt_file):
+        default_prompt = "Please summarize the following transcript:\n\n{transcript}"
+        with open(prompt_file, "w") as f:
+            f.write(default_prompt)
+    
+    with open(prompt_file, "r") as f:
+        return f.read()
+
+def save_prompt(prompt):
+    prompt_file = os.path.join("prompts", "meeting_summarizer.txt")
+    with open(prompt_file, "w") as f:
+        f.write(prompt)
+
+def save_transcript(transcript):
+    transcript_dir = "transcripts"
+    if not os.path.exists(transcript_dir):
+        os.makedirs(transcript_dir)
+    
+    # Format the timestamp in a more readable format
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"{timestamp}.txt"
+    filepath = os.path.join(transcript_dir, filename)
+    
+    with open(filepath, "w") as f:
+        f.write(transcript)
+    
+    return filepath
+
+def load_transcript(filepath):
+    with open(filepath, "r") as f:
+        return f.read()
 
 def main():
     st.title("Audio Recorder with OpenAI Whisper Speech-to-Text and GPT-4 Summary")
 
-    st.header("1. Audio Recording")
-    audio_value = st.experimental_audio_input("Record a voice message")
+    # Load or create the prompt
+    if 'prompt' not in st.session_state:
+        st.session_state.prompt = load_or_create_prompt()
 
-    if audio_value:
-        # st.audio(audio_value)
+    st.header("1. Audio Recording")
+    audio_value = st.experimental_audio_input("Click to record")
+
+    if audio_value is not None:
         st.write("Audio recorded successfully!")
         st.session_state.audio_file = audio_value
 
-    st.header("2. OpenAI Whisper Speech-to-Text")
-    if st.button("Transcribe Audio"):
-        if st.session_state.audio_file:
+        # Automatically transcribe and summarize
+        with st.spinner("Transcribing and summarizing..."):
             audio_bytes = st.session_state.audio_file.getvalue()
             
             # Calculate and display file size in MB
             file_size_mb = len(audio_bytes) / (1024 * 1024)
-            st.write(f"Audio file size: {file_size_mb:.2f} MB")
+            # st.write(f"Audio file size: {file_size_mb:.2f} MB")
             
             if file_size_mb > 25:
                 st.write("Audio file is larger than 25 MB. Splitting into chunks...")
@@ -141,27 +125,41 @@ def main():
                 st.session_state.transcript = full_transcript.strip()
             else:
                 audio_file = io.BytesIO(audio_bytes)
-                audio_file.name = "recording.wav"
+                audio_file.name = "recording.webm"
                 st.session_state.transcript = transcribe_audio(client, audio_file)
             
-            # Display the transcript
-            st.write("OpenAI Whisper result:")
-            st.write(st.session_state.transcript)
-        else:
-            st.warning("Please record audio before transcribing.")
+            # Save the transcript and display the filename
+            st.session_state.transcript_filepath = save_transcript(st.session_state.transcript)
+            transcript_filename = os.path.basename(st.session_state.transcript_filepath)
+            st.write(f"Transcript saved as: {transcript_filename}")
+            
+            # Display the transcript in an expandable section
+            with st.expander("Click to view full transcript", expanded=False):
+                st.write(st.session_state.transcript)
 
-    # Add a button to generate summary
-    if st.button("Generate Summary"):
-        if st.session_state.transcript:
-            with st.spinner("Generating summary..."):
-                st.session_state.summary = summarize_transcript(client, st.session_state.transcript)
-        else:
-            st.warning("Please record and transcribe audio before generating a summary.")
+            # Generate and display summary
+            st.session_state.summary = summarize_transcript(client, st.session_state.transcript, st.session_state.prompt)
+            st.subheader("Summary:")
+            st.write(st.session_state.summary)
 
-    # Display the summary if available
-    if st.session_state.summary:
-        st.write("GPT-4 Summary:")
-        st.write(st.session_state.summary)
+    # Display and allow editing of the prompt
+    st.header("2. Customize Summary Prompt")
+    new_prompt = st.text_area("Edit the summary prompt:", st.session_state.prompt, height=100)
+    if new_prompt != st.session_state.prompt:
+        st.session_state.prompt = new_prompt
+        save_prompt(new_prompt)
+        st.success("Prompt updated and saved!")
+
+    # Add a button to regenerate summary with the new prompt
+    if st.button("Regenerate Summary with New Prompt"):
+        if hasattr(st.session_state, 'transcript_filepath') and os.path.exists(st.session_state.transcript_filepath):
+            with st.spinner("Regenerating summary..."):
+                transcript = load_transcript(st.session_state.transcript_filepath)
+                st.session_state.summary = summarize_transcript(client, transcript, st.session_state.prompt)
+            st.subheader("Updated Summary:")
+            st.write(st.session_state.summary)
+        else:
+            st.warning("Please record audio before generating a summary.")
 
 if __name__ == "__main__":
     main()
