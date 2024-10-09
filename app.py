@@ -153,8 +153,15 @@ def main():
 
             # Generate and display summary
             st.session_state.summary = summarize_transcript(client, st.session_state.transcript, st.session_state.prompt)
-            # st.subheader("Summary:")
             st.write(st.session_state.summary)
+
+            # Add download button for summary
+            st.download_button(
+                label="Download Summary",
+                data=st.session_state.summary,
+                file_name="meeting_summary.txt",
+                mime="text/plain"
+            )
 
     # Display and allow editing of the prompt
     st.header("2. Customize Summary Prompt")
