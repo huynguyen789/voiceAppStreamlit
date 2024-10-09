@@ -1,6 +1,7 @@
 streamlit
 python-dotenv 
 openai
+python-ffmpeg
 pydub
 
 
