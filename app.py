@@ -1,5 +1,5 @@
 import streamlit as st
-from openaiApp import OpenAI
+from openai import OpenAI
 import io
 import os
 from dotenv import load_dotenv
@@ -136,12 +136,12 @@ def main():
             file_size_mb = len(audio_bytes) / (1024 * 1024)
             st.write(f"Audio file size: {file_size_mb:.2f} MB")
             
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+                temp_file.write(audio_bytes)
+                temp_file_path = temp_file.name
+
             if file_size_mb > 25:
                 st.write("Audio file is larger than 25 MB. Splitting into chunks...")
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
-                    temp_file.write(audio_bytes)
-                    temp_file_path = temp_file.name
-
                 chunks = split_audio(temp_file_path)
                 full_transcript = ""
                 for i, chunk in enumerate(chunks):
@@ -154,12 +154,12 @@ def main():
                     full_transcript += chunk_transcript + " "
                     os.unlink(chunk_file_path)
                 
-                os.unlink(temp_file_path)
                 st.session_state.transcript = full_transcript.strip()
             else:
-                audio_file = io.BytesIO(audio_bytes)
-                audio_file.name = "audio_input.mp3"
-                st.session_state.transcript = transcribe_audio(client, audio_file)
+                with open(temp_file_path, "rb") as audio_file:
+                    st.session_state.transcript = transcribe_audio(client, audio_file)
+            
+            os.unlink(temp_file_path)
             
             # Save the transcript
             st.session_state.transcript_filepath = save_transcript(st.session_state.transcript)
