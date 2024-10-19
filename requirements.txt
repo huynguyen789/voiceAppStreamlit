@@ -2,6 +2,7 @@ streamlit
 python-dotenv 
 openai
 ffmpeg-python
+pydub
 #gemini api
 # google-generativeai
 
