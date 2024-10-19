@@ -39,7 +39,7 @@ if 'prompt' not in st.session_state:
     st.session_state.prompt = load_or_create_prompt()
 
 def split_audio(audio_bytes, chunk_size_mb=25):
-    audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format="webm")
+    audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format="wav")
     chunk_length_ms = int((chunk_size_mb * 1024 * 1024 * 8) / (audio.frame_rate * audio.sample_width * audio.channels))
     chunks = [audio[i:i+chunk_length_ms] for i in range(0, len(audio), chunk_length_ms)]
     return chunks
