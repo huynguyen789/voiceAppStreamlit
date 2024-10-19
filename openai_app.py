@@ -10,6 +10,9 @@ import datetime
 # Load environment variables
 load_dotenv()
 
+# Add this constant at the top of the file
+MAX_CHUNK_DURATION = 180  # 3 minutes in seconds
+
 def load_or_create_prompt():
     prompt_dir = "prompts"
     prompt_file = os.path.join(prompt_dir, "meeting_summarizer.txt")
@@ -38,10 +41,18 @@ if 'audio_file' not in st.session_state:
 if 'prompt' not in st.session_state:
     st.session_state.prompt = load_or_create_prompt()
 
-def split_audio(audio_bytes, chunk_size_mb=25):
-    audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format="wav")
-    chunk_length_ms = int((chunk_size_mb * 1024 * 1024 * 8) / (audio.frame_rate * audio.sample_width * audio.channels))
-    chunks = [audio[i:i+chunk_length_ms] for i in range(0, len(audio), chunk_length_ms)]
+def split_audio(audio_file, chunk_duration=MAX_CHUNK_DURATION):
+    audio = AudioSegment.from_file(audio_file)
+    total_length = len(audio)
+    num_chunks = total_length // (chunk_duration * 1000) + (total_length % (chunk_duration * 1000) > 0)
+    
+    chunks = []
+    for i in range(num_chunks):
+        start_time = i * chunk_duration * 1000
+        end_time = start_time + chunk_duration * 1000
+        chunk = audio[start_time:end_time]
+        chunks.append(chunk)
+    
     return chunks
 
 def transcribe_audio(client, audio_file):
@@ -119,25 +130,31 @@ def main():
             st.session_state.audio_file = uploaded_file
 
     if hasattr(st.session_state, 'audio_file') and st.session_state.audio_file is not None:
-        # Automatically transcribe and summarize
         with st.spinner("Transcribing and summarizing..."):
             audio_bytes = st.session_state.audio_file.getvalue()
             
-            # Calculate and display file size in MB
             file_size_mb = len(audio_bytes) / (1024 * 1024)
             st.write(f"Audio file size: {file_size_mb:.2f} MB")
             
             if file_size_mb > 25:
                 st.write("Audio file is larger than 25 MB. Splitting into chunks...")
-                chunks = split_audio(audio_bytes)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+                    temp_file.write(audio_bytes)
+                    temp_file_path = temp_file.name
+
+                chunks = split_audio(temp_file_path)
                 full_transcript = ""
                 for i, chunk in enumerate(chunks):
                     st.write(f"Transcribing chunk {i+1}/{len(chunks)}...")
-                    chunk_file = io.BytesIO()
-                    chunk.export(chunk_file, format="mp3")
-                    chunk_file.seek(0)
-                    chunk_transcript = transcribe_audio(client, chunk_file)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as chunk_file:
+                        chunk.export(chunk_file, format="mp3")
+                        chunk_file_path = chunk_file.name
+                    with open(chunk_file_path, "rb") as audio_file:
+                        chunk_transcript = transcribe_audio(client, audio_file)
                     full_transcript += chunk_transcript + " "
+                    os.unlink(chunk_file_path)
+                
+                os.unlink(temp_file_path)
                 st.session_state.transcript = full_transcript.strip()
             else:
                 audio_file = io.BytesIO(audio_bytes)

@@ -1,5 +1,5 @@
 Please summarize the below transcript 
-Output in markdown syntax with title, main summary, then detail summary after with nicely organize and format:
+Output in markdown syntax with title, 1-2 sentences main summary, then detail summary after with nicely organize and format:
 
 <transcript>
 {transcript}

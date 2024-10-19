@@ -31,13 +31,13 @@ def split_audio(audio_file, chunk_duration):
     return chunks
 
 def transcribe_audio_chunk(chunk, mime_type):
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-1.5-flash-002")
     buffer = io.BytesIO()
     chunk.export(buffer, format="mp3")
     audio_bytes = buffer.getvalue()
     encoded_chunk = base64.b64encode(audio_bytes).decode('utf-8')
     content = [
-        "Transcribe the audio content accurately.",
+        "Transcribe the audio content accurately, get the important information.",
         {
             "mime_type": mime_type,
             "data": encoded_chunk
@@ -58,8 +58,8 @@ def transcribe_and_summarize_audio(audio_file):
     full_transcript = "\n\n".join(transcripts)
     
     # Summarize the full transcript using Gemini Flash
-    model = genai.GenerativeModel("gemini-1.5-flash")
-    summary_prompt = f"Summarize the following audio transcript:\n\n{full_transcript}"
+    model = genai.GenerativeModel("gemini-1.5-flash-002")
+    summary_prompt = f"Summarize the below audio transcript. First, have a 1-2 sentence summary of the content. Next, provide a detailed summary of the content:\n\n{full_transcript}"
     summary_response = model.generate_content(summary_prompt)
     
     return full_transcript, summary_response.text
