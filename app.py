@@ -1,5 +1,5 @@
 import streamlit as st
-from openai import OpenAI
+from openaiApp import OpenAI
 import io
 import os
 from dotenv import load_dotenv
@@ -7,11 +7,11 @@ from pydub import AudioSegment
 import tempfile
 import datetime
 
-
-
-
 # Load environment variables
 load_dotenv()
+
+# Add this constant at the top of the file
+MAX_CHUNK_DURATION = 180  # 3 minutes in seconds
 
 def load_or_create_prompt():
     prompt_dir = "prompts"
@@ -41,40 +41,19 @@ if 'audio_file' not in st.session_state:
 if 'prompt' not in st.session_state:
     st.session_state.prompt = load_or_create_prompt()
 
-def split_audio(audio_bytes, max_size_mb=24, output_format="mp3"):
-    max_size_bytes = max_size_mb * 1024 * 1024
+def split_audio(audio_file, chunk_duration=MAX_CHUNK_DURATION):
+    audio = AudioSegment.from_file(audio_file)
+    total_length = len(audio)
+    num_chunks = total_length // (chunk_duration * 1000) + (total_length % (chunk_duration * 1000) > 0)
     
-    # Try different formats
-    formats_to_try = ["webm", "wav", "mp3", "ogg"]
+    chunks = []
+    for i in range(num_chunks):
+        start_time = i * chunk_duration * 1000
+        end_time = start_time + chunk_duration * 1000
+        chunk = audio[start_time:end_time]
+        chunks.append(chunk)
     
-    for format in formats_to_try:
-        try:
-            audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format=format)
-            chunk_duration_ms = len(audio)
-            
-            while True:
-                chunk = audio[:chunk_duration_ms]
-                chunk_file = io.BytesIO()
-                chunk.export(chunk_file, format=output_format)
-                if len(chunk_file.getvalue()) <= max_size_bytes:
-                    break
-                chunk_duration_ms -= 1000  # Reduce duration by 1 second
-
-            chunks = []
-            for i in range(0, len(audio), chunk_duration_ms):
-                chunk = audio[i:i+chunk_duration_ms]
-                chunk_file = io.BytesIO()
-                chunk.export(chunk_file, format=output_format)
-                chunk_file.seek(0)
-                chunks.append(chunk_file)
-            
-            return chunks
-        except Exception as e:
-            print(f"Error with format {format}: {str(e)}")
-            continue
-    
-    # If all formats fail, raise an exception
-    raise ValueError("Unable to decode audio file. Supported formats are: webm, wav, mp3, ogg")
+    return chunks
 
 def transcribe_audio(client, audio_file):
     try:
@@ -149,7 +128,6 @@ def main():
         if uploaded_file is not None:
             st.success("Audio file uploaded successfully!")
             st.session_state.audio_file = uploaded_file
-            st.audio(uploaded_file, format="audio/wav")
 
     if hasattr(st.session_state, 'audio_file') and st.session_state.audio_file is not None:
         with st.spinner("Transcribing and summarizing..."):
@@ -158,15 +136,30 @@ def main():
             file_size_mb = len(audio_bytes) / (1024 * 1024)
             st.write(f"Audio file size: {file_size_mb:.2f} MB")
             
-            chunks = split_audio(audio_bytes)
-            full_transcript = ""
-            
-            for i, chunk in enumerate(chunks):
-                st.write(f"Transcribing chunk {i+1}/{len(chunks)}...")
-                chunk_transcript = transcribe_audio(client, chunk)
-                full_transcript += chunk_transcript + " "
-            
-            st.session_state.transcript = full_transcript.strip()
+            if file_size_mb > 25:
+                st.write("Audio file is larger than 25 MB. Splitting into chunks...")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+                    temp_file.write(audio_bytes)
+                    temp_file_path = temp_file.name
+
+                chunks = split_audio(temp_file_path)
+                full_transcript = ""
+                for i, chunk in enumerate(chunks):
+                    st.write(f"Transcribing chunk {i+1}/{len(chunks)}...")
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as chunk_file:
+                        chunk.export(chunk_file, format="mp3")
+                        chunk_file_path = chunk_file.name
+                    with open(chunk_file_path, "rb") as audio_file:
+                        chunk_transcript = transcribe_audio(client, audio_file)
+                    full_transcript += chunk_transcript + " "
+                    os.unlink(chunk_file_path)
+                
+                os.unlink(temp_file_path)
+                st.session_state.transcript = full_transcript.strip()
+            else:
+                audio_file = io.BytesIO(audio_bytes)
+                audio_file.name = "audio_input.mp3"
+                st.session_state.transcript = transcribe_audio(client, audio_file)
             
             # Save the transcript
             st.session_state.transcript_filepath = save_transcript(st.session_state.transcript)
