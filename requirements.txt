@@ -1,11 +1,9 @@
 streamlit
 python-dotenv 
 openai
-python-ffmpeg
-pydub
-
-
-
+ffmpeg-python
+#gemini api
+google-generativeai
 
 
 # #realtime api re:
