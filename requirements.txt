@@ -1,6 +1,7 @@
 streamlit
 python-dotenv 
 openai
+openai-whisper
 ffmpeg-python
 #gemini api
 google-generativeai
